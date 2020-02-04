@@ -245,22 +245,26 @@ impl<'a> Writer<'a> {
                 .create(true)
                 .open(path)?,
         );
-        file.write(Tag::Header.binary())?;
-        file.write(&[0, 0, 0, 6])?;
-        file.write(&self.format.binary())?;
-        file.write_u16::<BigEndian>(self.track_number())?;
-        file.write_u16::<BigEndian>(self.time_base)?;
+        self.write_bytes(&mut file)
+    }
+    /// Write to a generic byte sink
+    pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), io::Error> {
+        w.write(Tag::Header.binary())?;
+        w.write(&[0, 0, 0, 6])?;
+        w.write(&self.format.binary())?;
+        w.write_u16::<BigEndian>(self.track_number())?;
+        w.write_u16::<BigEndian>(self.time_base)?;
         let mut track_len_filo = self.track_len_filo();
         if self.messages.len() > 0 && *self.messages[0] != Message::TrackChange {
-            file.write(&Message::TrackChange.binary())?;
-            file.write_u32::<BigEndian>(track_len_filo.pop().unwrap() as u32)?;
+            w.write(&Message::TrackChange.binary())?;
+            w.write_u32::<BigEndian>(track_len_filo.pop().unwrap() as u32)?;
         }
         let mut pre_status_byte: Option<u8> = None;
         for message in &self.messages {
             match **message {
                 Message::TrackChange => {
-                    file.write(&Message::TrackChange.binary())?;
-                    file.write_u32::<BigEndian>(track_len_filo.pop().unwrap() as u32)?;
+                    w.write(&Message::TrackChange.binary())?;
+                    w.write_u32::<BigEndian>(track_len_filo.pop().unwrap() as u32)?;
                     pre_status_byte = None;
                     debug!("wrote track change");
                 }
@@ -274,12 +278,12 @@ impl<'a> Writer<'a> {
                     match pre_status_byte {
                         Some(pre_status_byte) if pre_status_byte == tmp_status_byte => {
                             let tmp_message = message.binary();
-                            file.write(&tmp_message[0..delta_time.len()])?;
-                            file.write(&message.binary()[delta_time.len() + 1..])?;
+                            w.write(&tmp_message[0..delta_time.len()])?;
+                            w.write(&message.binary()[delta_time.len() + 1..])?;
                             trace!("wrote some message with running status");
                         }
                         _ => {
-                            file.write(&message.binary())?;
+                            w.write(&message.binary())?;
                             trace!("wrote some message");
                             if self.running_status {
                                 pre_status_byte = Some(tmp_status_byte);
@@ -288,12 +292,12 @@ impl<'a> Writer<'a> {
                     };
                 }
                 _ => {
-                    file.write(&message.binary())?;
+                    w.write(&message.binary())?;
                     trace!("wrote some message");
                 }
             }
         }
-        Ok(file.flush()?)
+        Ok(w.flush()?)
     }
     fn track_len_filo(&self) -> Vec<usize> {
         // First In Last Out
